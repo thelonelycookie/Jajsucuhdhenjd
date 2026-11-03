@@ -122,6 +122,27 @@
         base();
         fg = `<path d="M15 15V75H45" fill="none" stroke="var(--diag)" stroke-width="2" stroke-dasharray="3 3"/>` + dig(0, 0, 3) + `<text x="45" y="76" class="d bad" style="font-size:19px">3</text>`;
         break;
+      case 'liar':
+        base();
+        fg = `<path d="M3 3H57V27H3Z" class="cage"/><path d="M3 33H27V87H3Z" class="cage"/><path d="M33 33H87V57H63V87H33Z" class="cage"/>`
+          + `<text x="5" y="13" class="cage-sum">10</text><text x="5" y="43" class="cage-sum">8</text><text x="35" y="43" class="cage-sum">18</text>`
+          + `<text x="76" y="80" class="d bad" style="font-size:16px">±1</text>`;
+        break;
+      case 'lever':
+        base();
+        fg = `<line x1="15" y1="45" x2="75" y2="45" class="lever"/><circle cx="15" cy="45" r="3" class="lever-dot"/><circle cx="75" cy="45" r="3" class="lever-dot"/><polygon points="45,55 36,66 54,66" class="fulcrum"/>`
+          + dig(0, 0, 2, 'user') + dig(2, 2, 7, 'user');
+        break;
+      case 'compass':
+        base();
+        fg = dig(0, 0, 2) + `<polygon points="27,27 17,24 24,17" class="arr arr9"/>` + dig(2, 2, 9, 'user')
+          + dig(0, 2, 1, 'user') + dig(2, 0, 1) + `<polygon points="15,63 9,72 21,72" class="arr arr1" transform="rotate(0)"/>`;
+        break;
+      case 'lines':
+        base();
+        fg = `<circle cx="15" cy="15" r="10" class="ln-bulb"/><polyline points="15,15 45,15 75,45" class="ln ln-thermo"/>`
+          + `<polyline points="15,75 45,45" class="ln ln-whisper"/><polyline points="45,75 75,75" class="ln ln-renban"/>`;
+        break;
       default: base();
     }
     return `<svg viewBox="-2 -2 94 94" aria-hidden="true">${bg}${fg}<rect x="0" y="0" width="90" height="90" class="thick" stroke-width="3"/></svg>`;
@@ -170,10 +191,14 @@
       const meta = [];
       if (sv && !sv.solved) meta.push(`<span class="pill go">Fortsetzen · ${fmtTime(sv.elapsed)}</span>`);
       if (st && st.solved) meta.push(`<span class="pill">${st.solved}× gelöst</span>`);
-      if (st && st.best && st.best[prefs.difficulty]) meta.push(`<span class="pill">Bestzeit ${fmtTime(st.best[prefs.difficulty])}</span>`);
+      const dKey = spec.fixed || prefs.difficulty;
+      if (spec.fixed) meta.unshift(`<span class="pill hot">Immer ${G.DIFFICULTY[spec.fixed].name}</span>`);
+      if (st && st.best && st.best[dKey]) meta.push(`<span class="pill">Bestzeit ${fmtTime(st.best[dKey])}</span>`);
       const blurb = spec.group === 'single' ? spec.blurb : spec.blurb;
       return `<button type="button" class="card" data-id="${spec.id}">${icon}<div><h3>${spec.name}</h3><p>${blurb}</p>${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}</div></button>`;
     };
+    const masters = G.CATALOG.filter((s) => s.group === 'master');
+    $('masterCards').innerHTML = masters.map(card).join('');
     const giants = G.CATALOG.filter((s) => s.group === 'giant' && s.id !== 'super');
     const singles = G.CATALOG.filter((s) => s.group === 'single');
     $('giantCards').innerHTML = giants.map(card).join('');
@@ -296,6 +321,7 @@
     P.houses.forEach((h) => h.forEach((a) => h.forEach((b) => { if (a !== b) peers[a].add(b); })));
     (P.cages || []).forEach((cg) => cg.cells.forEach((a) => cg.cells.forEach((b) => { if (a !== b) peers[a].add(b); })));
     (P.distinct || []).forEach(([a, b]) => { peers[a].add(b); peers[b].add(a); });
+    (P.lines || []).forEach((l) => { if (l.type === 'renban') l.cells.forEach((a) => l.cells.forEach((b) => { if (a !== b) peers[a].add(b); })); });
     // Sichtbare Nachbarn für die Hervorhebung: nur Zeile, Spalte, Gebiet
     const gridsOf = Array.from({ length: P.n }, () => []);
     P.grids.forEach((g, gi) => g.ids.forEach((id, li) => gridsOf[id].push([gi, li])));
@@ -380,7 +406,32 @@
         clues += `<path class="chev" d="M${mx - dx * s + px * s} ${my - dy * s + py * s}L${mx + dx * s} ${my + dy * s}L${mx - dx * s - px * s} ${my - dy * s - py * s}"/>`;
       }
     }
-    svg.innerHTML = `<g>${bg}</g><g id="hlLayer"></g><g>${marks}</g><g>${thick}</g><g>${clues}</g><g id="digLayer"></g>`;
+    // Linien, Hebel, Kompass-Pfeile
+    const ctr = (id) => { const [r, c] = P.cells[id]; return [c * S + S / 2, r * S + S / 2]; };
+    let lines = '';
+    for (const l of P.lines || []) {
+      const pts = l.cells.map((id) => ctr(id).join(',')).join(' ');
+      if (l.type === 'thermo') { const [x, y] = ctr(l.cells[0]); lines += `<circle cx="${x}" cy="${y}" r="${S * 0.36}" class="ln-bulb"/>`; }
+      lines += `<polyline points="${pts}" class="ln ln-${l.type}"/>`;
+    }
+    for (const lv of P.levers || []) {
+      const a = ctr(lv.cells[0]), b = ctr(lv.cells[lv.cells.length - 1]), f = ctr(lv.cells[lv.fulcrum]);
+      const horiz = a[1] === b[1];
+      lines += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" class="lever"/>`;
+      for (const id of lv.cells) { const [x, y] = ctr(id); lines += `<circle cx="${x}" cy="${y}" r="3" class="lever-dot"/>`; }
+      const tri = horiz
+        ? `${f[0]},${f[1] + 12} ${f[0] - 9},${f[1] + 23} ${f[0] + 9},${f[1] + 23}`
+        : `${f[0] + 12},${f[1]} ${f[0] + 23},${f[1] - 9} ${f[0] + 23},${f[1] + 9}`;
+      lines += `<polygon points="${tri}" class="fulcrum"/>`;
+    }
+    for (const ar of P.arrows || []) {
+      const [x, y] = ctr(ar.cell);
+      const [dr, dc] = ar.dir;
+      const len = Math.hypot(dr, dc), ux = dc / len, uy = dr / len;
+      const cx = x + ux * 16, cy = y + uy * 16, s2 = 6.5, px = -uy, py = ux;
+      lines += `<polygon points="${cx + ux * s2},${cy + uy * s2} ${cx - ux * s2 + px * s2},${cy - uy * s2 + py * s2} ${cx - ux * s2 - px * s2},${cy - uy * s2 - py * s2}" class="arr arr${ar.digit}"/>`;
+    }
+    svg.innerHTML = `<g>${bg}</g><g id="hlLayer"></g><g>${marks}${lines}</g><g>${thick}</g><g>${clues}</g><g id="digLayer"></g>`;
     V.hl = svg.querySelector('#hlLayer');
     V.dig = svg.querySelector('#digLayer');
   }
@@ -446,7 +497,46 @@
         sum += v;
         if (seen.has(v)) { bad.add(id); bad.add(seen.get(v)); } else seen.set(v, id);
       }
-      if ((full && sum !== cg.sum) || sum > cg.sum) cg.cells.forEach((id) => { if (vals[id]) bad.add(id); });
+      const wrong = cg.liar ? (full && Math.abs(sum - cg.sum) !== 1) || sum > cg.sum + 1 : (full && sum !== cg.sum) || sum > cg.sum;
+      if (wrong) cg.cells.forEach((id) => { if (vals[id]) bad.add(id); });
+    }
+    const E = window.SudokuEngine;
+    for (const l of P.lines || []) {
+      const c = l.cells;
+      const flag = (...ids) => ids.forEach((id) => bad.add(id));
+      if (l.type === 'thermo' || l.type === 'whisper') {
+        for (let i = 0; i + 1 < c.length; i++) {
+          const a = vals[c[i]], b = vals[c[i + 1]];
+          if (a && b && (l.type === 'thermo' ? a >= b : Math.abs(a - b) < 5)) flag(c[i], c[i + 1]);
+        }
+        if (l.type === 'thermo') {
+          // auch nicht benachbarte Felder: Abstand muss passen
+          for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) {
+            if (vals[c[i]] && vals[c[j]] && vals[c[j]] - vals[c[i]] < j - i) flag(c[i], c[j]);
+          }
+        }
+      } else if (l.type === 'palindrome') {
+        for (let i = 0; i < c.length - 1 - i; i++) {
+          const a = vals[c[i]], b = vals[c[c.length - 1 - i]];
+          if (a && b && a !== b) flag(c[i], c[c.length - 1 - i]);
+        }
+      } else if (l.type === 'renban') {
+        const f = c.filter((id) => vals[id]);
+        const vs = f.map((id) => vals[id]);
+        if (vs.length && (new Set(vs).size !== vs.length || Math.max(...vs) - Math.min(...vs) > c.length - 1)) flag(...f);
+      }
+    }
+    for (const lv of P.levers || []) {
+      if (lv.cells.every((id, i) => i === lv.fulcrum || vals[id]) && E.leverTorque(lv, vals) !== 0) {
+        lv.cells.forEach((id, i) => { if (i !== lv.fulcrum) bad.add(id); });
+      }
+    }
+    for (const ar of P.arrows || []) {
+      const d = vals[ar.cell];
+      if (!d) continue;
+      const t = ar.targets[d];
+      if (t < 0) bad.add(ar.cell);
+      else if (vals[t] && vals[t] !== ar.digit) { bad.add(ar.cell); bad.add(t); }
     }
     const rel = window.SudokuEngine.RELATIONS;
     for (const p of P.pairs || []) {

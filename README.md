@@ -5,6 +5,15 @@ Alle Rätsel werden **neu erzeugt** und haben **genau eine Lösung**.
 
 ## Rätsel
 
+**Meister-Rätsel** (9 × 9, kaum Vorgaben, immer Stufe „Extrem“ – schwer durch die Regeln, nicht durch die Größe)
+
+| Name | Mechanismus |
+| --- | --- |
+| Lügen-Käfige | Killer, aber jede Käfigsumme ist um genau 1 falsch (zu groß oder zu klein) |
+| Hebel-Sudoku | Balken mit Drehpunkt: Σ Ziffer × Abstand ist links und rechts gleich |
+| Kompass-Sudoku | Pfeil-Länge = Ziffer im Feld; das Ziel ist eine 9 (gefüllter Pfeil) oder eine 1 (hohler Pfeil) |
+| Linien-Labyrinth | Thermometer, Flüsterlinien (Abstand ≥ 5), Ketten (Renban) und Palindrome in einem Gitter |
+
 **Riesen-Rätsel** (mehrere Gitter teilen sich Blöcke)
 
 | Name | Form |
@@ -17,7 +26,7 @@ Alle Rätsel werden **neu erzeugt** und haben **genau eine Lösung**.
 **Einzelne Varianten:** Klassisch, Killer, >Sudoku< (Größer/Kleiner), Addition, Nachbar-Sudoku (Consecutive),
 Sudoku X, Seltsame Boxen (Jigsaw), Farb-Sudoku (Offset), Fenster (Windoku), Gerade/Ungerade, Anti-Springer.
 
-Drei Schwierigkeitsstufen: *Leicht* und *Mittel* sind ohne Raten lösbar, *Schwer* hat die wenigsten Vorgaben.
+Vier Stufen: *Leicht* und *Mittel* sind ohne Raten lösbar, *Schwer* und *Extrem* haben die wenigsten Vorgaben und brauchen tiefere Schlussketten.
 
 ## Bedienung
 

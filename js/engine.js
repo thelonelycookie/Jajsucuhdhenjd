@@ -55,6 +55,8 @@
     cons: (a, b) => Math.abs(a - b) === 1,
     noncons: (a, b) => Math.abs(a - b) !== 1,
     ne: (a, b) => a !== b,
+    eq: (a, b) => a === b,                    // Palindrom
+    whisper: (a, b) => Math.abs(a - b) >= 5,  // Flüsterlinie
   };
   const relCache = {};
   function relTables(type) {
@@ -93,6 +95,15 @@
     return comboCache[key];
   }
 
+  /* Mengen aus k aufeinanderfolgenden Ziffern (Kette / Renban). */
+  function runList(k) {
+    const out = [];
+    for (let s = 1; s + k - 1 <= 9; s++) out.push(((1 << k) - 1) << (s - 1));
+    return Uint16Array.from(out);
+  }
+
+  const DIRS8 = [[-1, 0], [-1, 1], [0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1]];
+
   /*
    * Ein Rätsel P beschreibt nur Regeln, keine Darstellung:
    *   n          Anzahl Felder
@@ -102,6 +113,10 @@
    *   pairs      { a, b, type } – Beziehungen (lt, cons, noncons)
    *   sums       { cells, target } – Summe der cells = Ziffer im target
    *   parity     [[id, 'e'|'o'], ...]
+   *   cages[].liar  Lügen-Käfig: echte Summe ist sum-1 oder sum+1
+   *   lines      { type: thermo|whisper|renban|palindrome, cells }
+   *   levers     { cells, fulcrum } – Drehmoment links = rechts
+   *   arrows     { cell, targets[1..9], digit } – d Schritte weiter steht digit
    */
   function compile(P) {
     const n = P.n;
@@ -111,12 +126,20 @@
     };
     (P.houses || []).forEach(addGroup);
     (P.cages || []).forEach((c) => addGroup(c.cells));
+    (P.lines || []).forEach((l) => { if (l.type === 'renban') addGroup(l.cells); });
     (P.distinct || []).forEach(([a, b]) => { peerSets[a].add(b); peerSets[b].add(a); });
     const peers = peerSets.map((s) => Int32Array.from(s));
     const houses = (P.houses || []).map((h) => Int32Array.from(h));
 
     const pairs = [];
-    for (const p of P.pairs || []) {
+    const allPairs = (P.pairs || []).slice();
+    for (const l of P.lines || []) {
+      const c = l.cells;
+      if (l.type === 'thermo') for (let i = 0; i + 1 < c.length; i++) allPairs.push({ a: c[i], b: c[i + 1], type: 'lt' });
+      if (l.type === 'whisper') for (let i = 0; i + 1 < c.length; i++) allPairs.push({ a: c[i], b: c[i + 1], type: 'whisper' });
+      if (l.type === 'palindrome') for (let i = 0; i < c.length - 1 - i; i++) allPairs.push({ a: c[i], b: c[c.length - 1 - i], type: 'eq' });
+    }
+    for (const p of allPairs) {
       if (p.type === 'ne') continue;
       const t = relTables(p.type);
       pairs.push({ a: p.a, b: p.b, fwdM: t.fwdM, bwdM: t.bwdM });
@@ -125,26 +148,39 @@
     const lins = [];
     const cages = [];
     for (const c of P.cages || []) {
-      lins.push({ cells: Int32Array.from(c.cells), coef: new Int8Array(c.cells.length).fill(1), sum: c.sum });
-      cages.push({ cells: Int32Array.from(c.cells), combos: comboList(c.cells.length, c.sum) });
+      const k = c.cells.length;
+      const lo = c.liar ? c.sum - 1 : c.sum, hi = c.liar ? c.sum + 1 : c.sum;
+      lins.push({ cells: Int32Array.from(c.cells), coef: new Int8Array(k).fill(1), lo, hi });
+      const combos = c.liar ? Uint16Array.from([...comboList(k, c.sum - 1), ...comboList(k, c.sum + 1)]) : comboList(k, c.sum);
+      cages.push({ cells: Int32Array.from(c.cells), combos });
+    }
+    for (const l of P.lines || []) {
+      if (l.type === 'renban') cages.push({ cells: Int32Array.from(l.cells), combos: runList(l.cells.length) });
     }
     for (const s of P.sums || []) {
       const cells = Int32Array.from([...s.cells, s.target]);
       const coef = new Int8Array(cells.length).fill(1);
       coef[coef.length - 1] = -1;
-      lins.push({ cells, coef, sum: 0 });
+      lins.push({ cells, coef, lo: 0, hi: 0 });
     }
+    // Hebel: Ziffer × Abstand links = rechts  ->  Summe(k_i · v_i) = 0
+    for (const lv of P.levers || []) {
+      const cells = [], coef = [];
+      lv.cells.forEach((id, i) => { if (i !== lv.fulcrum) { cells.push(id); coef.push(i - lv.fulcrum); } });
+      lins.push({ cells: Int32Array.from(cells), coef: Int8Array.from(coef), lo: 0, hi: 0 });
+    }
+    const arrows = (P.arrows || []).map((a) => ({ cell: a.cell, targets: Int32Array.from(a.targets), tbit: BIT(a.digit) }));
 
     const init = new Uint16Array(n).fill(ALL);
     const EVEN = BIT(2) | BIT(4) | BIT(6) | BIT(8);
     for (const [id, kind] of P.parity || []) init[id] &= kind === 'e' ? EVEN : ALL & ~EVEN;
 
-    return { n, peers, houses, pairs, lins, cages, init };
+    return { n, peers, houses, pairs, lins, cages, arrows, init };
   }
 
   /* Constraint-Propagation bis zum Fixpunkt. Gibt false bei Widerspruch zurück. */
   function propagate(C, cand, done) {
-    const { n, peers, houses, pairs, lins, cages } = C;
+    const { n, peers, houses, pairs, lins, cages, arrows } = C;
     let changed = true;
     while (changed) {
       changed = false;
@@ -240,27 +276,42 @@
         }
       }
 
-      // 4) Lineare Summen (Killer-Käfige, Additionsgruppen) über Schranken
+      // 4b) Kompass-Pfeile: Ziffer d nur, wenn d Schritte weiter die Zielziffer stehen kann
+      for (let k = 0; k < arrows.length; k++) {
+        const ar = arrows[k];
+        const m = cand[ar.cell];
+        let nm = 0;
+        for (let d = 1; d <= 9; d++) {
+          if (!(m & BIT(d))) continue;
+          const t = ar.targets[d];
+          if (t >= 0 && (cand[t] & ar.tbit)) nm |= BIT(d);
+        }
+        if (!nm) return false;
+        if (nm !== m) { cand[ar.cell] = nm; changed = true; }
+        if (POP[nm] === 1) {
+          const t = ar.targets[MIN[nm]];
+          if (cand[t] !== ar.tbit) { cand[t] &= ar.tbit; if (!cand[t]) return false; changed = true; }
+        }
+      }
+
+      // 4) Lineare (gewichtete) Summen über Schranken: lo <= Σ k_i·v_i <= hi
       for (let k = 0; k < lins.length; k++) {
         const L = lins[k];
-        const cells = L.cells, coef = L.coef, S = L.sum;
+        const cells = L.cells, coef = L.coef;
         let tmin = 0, tmax = 0;
         for (let j = 0; j < cells.length; j++) {
-          const m = cand[cells[j]];
-          if (coef[j] > 0) { tmin += MIN[m]; tmax += MAX[m]; } else { tmin -= MAX[m]; tmax -= MIN[m]; }
+          const m = cand[cells[j]], q = coef[j];
+          if (q > 0) { tmin += q * MIN[m]; tmax += q * MAX[m]; } else { tmin += q * MAX[m]; tmax += q * MIN[m]; }
         }
-        if (tmin > S || tmax < S) return false;
+        if (tmin > L.hi || tmax < L.lo) return false;
         for (let j = 0; j < cells.length; j++) {
           const c = cells[j];
-          const m = cand[c];
+          const m = cand[c], q = coef[j];
+          const termMin = q > 0 ? q * MIN[m] : q * MAX[m];
+          const termMax = q > 0 ? q * MAX[m] : q * MIN[m];
+          const A = L.lo - (tmax - termMax), B = L.hi - (tmin - termMin); // q·v liegt in [A, B]
           let lo, hi;
-          if (coef[j] > 0) {
-            const restMin = tmin - MIN[m], restMax = tmax - MAX[m];
-            lo = S - restMax; hi = S - restMin;
-          } else {
-            const restMin = tmin + MAX[m], restMax = tmax + MIN[m];
-            lo = restMin - S; hi = restMax - S;
-          }
+          if (q > 0) { lo = Math.ceil(A / q); hi = Math.floor(B / q); } else { lo = Math.ceil(B / q); hi = Math.floor(A / q); }
           const nm = m & rangeMask(lo, hi);
           if (!nm) return false;
           if (nm !== m) { cand[c] = nm; changed = true; }
@@ -326,6 +377,20 @@
     return { count, nodes, aborted, solution };
   }
 
+  /* Linienregel für eine vollständig gefüllte Linie */
+  function lineOk(l, vs) {
+    if (l.type === 'thermo') return vs.every((v, i) => i === 0 || vs[i - 1] < v);
+    if (l.type === 'whisper') return vs.every((v, i) => i === 0 || Math.abs(vs[i - 1] - v) >= 5);
+    if (l.type === 'palindrome') return vs.every((v, i) => v === vs[vs.length - 1 - i]);
+    if (l.type === 'renban') return new Set(vs).size === vs.length && Math.max(...vs) - Math.min(...vs) === vs.length - 1;
+    return true;
+  }
+  function leverTorque(lv, values) {
+    let t = 0;
+    lv.cells.forEach((id, i) => { t += (i - lv.fulcrum) * values[id]; });
+    return t;
+  }
+
   /* Löst das Rätsel nur durch Logik (ohne Raten)? */
   function solvesByLogic(C, givens) {
     const cand = C.init.slice();
@@ -350,7 +415,15 @@
     for (const [a, b] of P.distinct || []) if (values[a] === values[b]) errors.push(['distinct', a, b]);
     for (const c of P.cages || []) {
       const vs = c.cells.map((id) => values[id]);
-      if (new Set(vs).size !== vs.length || vs.reduce((s, v) => s + v, 0) !== c.sum) errors.push(['cage', c]);
+      const sum = vs.reduce((s, v) => s + v, 0);
+      const okSum = c.liar ? Math.abs(sum - c.sum) === 1 : sum === c.sum;
+      if (new Set(vs).size !== vs.length || !okSum) errors.push(['cage', c]);
+    }
+    for (const l of P.lines || []) if (!lineOk(l, l.cells.map((id) => values[id]))) errors.push(['line', l]);
+    for (const lv of P.levers || []) if (leverTorque(lv, values) !== 0) errors.push(['lever', lv]);
+    for (const a of P.arrows || []) {
+      const t = a.targets[values[a.cell]];
+      if (t < 0 || values[t] !== a.digit) errors.push(['arrow', a]);
     }
     for (const p of P.pairs || []) if (!RELATIONS[p.type](values[p.a], values[p.b])) errors.push(['pair', p]);
     for (const s of P.sums || []) {
@@ -361,7 +434,7 @@
     return errors;
   }
 
-  const api = { ALL, POP, MIN, MAX, BIT, rng, compile, propagate, solve, solvesByLogic, verify, RELATIONS };
+  const api = { ALL, POP, MIN, MAX, BIT, DIRS8, rng, compile, propagate, solve, solvesByLogic, verify, lineOk, leverTorque, RELATIONS };
   root.SudokuEngine = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof self !== 'undefined' ? self : globalThis);

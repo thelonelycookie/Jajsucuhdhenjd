@@ -32,6 +32,14 @@
       rule: 'Auch die vier hinterlegten Fenster (3×3) enthalten die Ziffern 1–9 genau einmal.' },
     evenodd:     { name: 'Gerade/Ungerade',  short: 'Gerade/Ungerade', cls: null,
       rule: 'In ein Feld mit Quadrat gehört eine gerade Ziffer, in ein Feld mit Kreis eine ungerade.' },
+    liar:        { name: 'Lügen-Käfige',     short: 'Lügner', cls: 'cage',
+      rule: 'Wie Killer, aber jede Käfigzahl lügt: Die echte Summe ist um genau 1 größer oder kleiner als angegeben. Im Käfig wiederholt sich keine Ziffer.' },
+    lever:       { name: 'Hebel-Sudoku',     short: 'Hebel', cls: 'line',
+      rule: 'Jeder Balken ist ein Hebel im Gleichgewicht, das Dreieck ist der Drehpunkt. Ziffer × Abstand zum Drehpunkt, aufsummiert, ist links und rechts gleich. Beispiel: 3 4 ▲ 6 2 → 3·2 + 4·1 = 6·1 + 2·2. Das Feld am Drehpunkt zählt nicht.' },
+    compass:     { name: 'Kompass-Sudoku',   short: 'Kompass', cls: 'line',
+      rule: 'Geht man von einem Pfeilfeld so viele Felder in Pfeilrichtung, wie seine Ziffer angibt, landet man bei einem ausgefüllten Pfeil auf einer 9, bei einem hohlen Pfeil (nur Umriss) auf einer 1.' },
+    lines:       { name: 'Linien-Labyrinth', short: 'Linien', cls: 'line',
+      rule: 'Grau (Thermometer): Ziffern steigen von der Kugel aus. Grün (Flüstern): Nachbarn auf der Linie unterscheiden sich um mindestens 5. Lila (Kette): aufeinanderfolgende Ziffern in beliebiger Reihenfolge, ohne Wiederholung. Orange (Palindrom): von beiden Enden gelesen gleich.' },
     antiknight:  { name: 'Anti-Springer',    short: 'Anti-Springer', cls: null,
       rule: 'Zwei Felder, die einen Rösselsprung (wie beim Schach) auseinanderliegen, haben nie dieselbe Ziffer.' },
   };
@@ -59,6 +67,16 @@
     { id: 'twin', group: 'giant', name: 'Doppel', layout: 'twin', types: 'mix',
       blurb: 'Zwei Varianten, die sich einen Block teilen. Guter Einstieg in die Riesen-Rätsel.' },
   ];
+  CATALOG.push(
+    { id: 'liar', group: 'master', name: 'Lügen-Käfige', layout: 'single', types: ['liar'], fixed: 'extreme',
+      blurb: 'Killer mit kaum Vorgaben, bei dem keine einzige Käfigzahl stimmt. Die 45er-Regel wird zum Rätsel für sich.' },
+    { id: 'lever', group: 'master', name: 'Hebel-Sudoku', layout: 'single', types: ['lever'], fixed: 'extreme',
+      blurb: 'Balken mit Drehpunkt: Ziffern wirken mit ihrem Abstand wie Gewichte. Gleichungen mit Hebelgesetz statt Summen.' },
+    { id: 'compass', group: 'master', name: 'Kompass-Sudoku', layout: 'single', types: ['compass'], fixed: 'extreme',
+      blurb: 'Pfeile, deren Länge die Ziffer selbst ist. Jede Ziffer entscheidet, wo eine 9 oder 1 liegt, und umgekehrt.' },
+    { id: 'lines', group: 'master', name: 'Linien-Labyrinth', layout: 'single', types: ['lines'], fixed: 'extreme',
+      blurb: 'Vier Linienarten mit vier Gesetzen in einem Gitter: Thermometer, Flüstern, Kette und Palindrom.' },
+  );
   for (const t of ['classic', 'killer', 'greater', 'addition', 'consecutive', 'x', 'jigsaw', 'offset', 'windoku', 'evenodd', 'antiknight']) {
     CATALOG.push({ id: t, group: 'single', name: TYPES[t].name, layout: 'single', types: [t], blurb: TYPES[t].rule });
   }
@@ -69,6 +87,7 @@
     easy:   { name: 'Leicht', logic: true,  extra: 10 },
     medium: { name: 'Mittel', logic: true,  extra: 2 },
     hard:   { name: 'Schwer', logic: false, guess: 40, extra: 0 },
+    extreme: { name: 'Extrem', logic: false, guess: 140, extra: 0 },
   };
 
   /* ---------- Hilfen ---------- */
@@ -254,59 +273,198 @@
     return { houses, distinct };
   }
 
+  /* Killer-Aufteilung in Käfige (lokale Feldindizes) */
+  function killerPartition(g, sol, R) {
+    const inGrid = (r, c) => r >= 0 && r < 9 && c >= 0 && c < 9;
+    const cageOf = new Int16Array(81).fill(-1);
+    const list = [];
+    for (const start of R.shuffle([...Array(81).keys()])) {
+      if (cageOf[start] >= 0) continue;
+      const roll = R();
+      const size = roll < 0.08 ? 1 : roll < 0.38 ? 2 : roll < 0.75 ? 3 : roll < 0.93 ? 4 : 5;
+      const cage = [start];
+      const vals = new Set([sol[g.ids[start]]]);
+      cageOf[start] = list.length;
+      while (cage.length < size) {
+        const front = [];
+        for (const x of cage) {
+          const r = Math.floor(x / 9), c = x % 9;
+          for (const [dr, dc] of D4) {
+            const rr = r + dr, cc = c + dc;
+            if (!inGrid(rr, cc)) continue;
+            const y = rr * 9 + cc;
+            if (cageOf[y] < 0 && !vals.has(sol[g.ids[y]]) && !front.includes(y)) front.push(y);
+          }
+        }
+        if (!front.length) break;
+        const y = R.pick(front);
+        cage.push(y); vals.add(sol[g.ids[y]]); cageOf[y] = list.length;
+      }
+      list.push(cage);
+    }
+    // Einzelfelder möglichst an Nachbarkäfige anhängen
+    list.forEach((cage, ci) => {
+      if (cage.length !== 1) return;
+      const x = cage[0], r = Math.floor(x / 9), c = x % 9;
+      for (const [dr, dc] of R.shuffle(D4.slice())) {
+        const rr = r + dr, cc = c + dc;
+        if (!inGrid(rr, cc)) continue;
+        const other = cageOf[rr * 9 + cc];
+        const oc = list[other];
+        if (oc.length < 5 && !oc.some((y) => sol[g.ids[y]] === sol[g.ids[x]])) {
+          oc.push(x); cageOf[x] = other; list[ci] = [];
+          return;
+        }
+      }
+    });
+    return list.filter((c) => c.length);
+  }
+
   /* ---------- Hinweise aus der Lösung ableiten ---------- */
   function deriveClues(L, sol, R, cellGridCount) {
-    const cages = [], pairs = [], sums = [], parity = [];
+    const cages = [], pairs = [], sums = [], parity = [], lines = [], levers = [], arrows = [];
     for (const g of L.grids) {
       const id = (r, c) => g.ids[r * 9 + c];
       const inGrid = (r, c) => r >= 0 && r < 9 && c >= 0 && c < 9;
 
-      if (g.type === 'killer') {
-        const cageOf = new Int16Array(81).fill(-1);
-        const list = [];
-        for (const start of R.shuffle([...Array(81).keys()])) {
-          if (cageOf[start] >= 0) continue;
-          const roll = R();
-          const size = roll < 0.08 ? 1 : roll < 0.38 ? 2 : roll < 0.75 ? 3 : roll < 0.93 ? 4 : 5;
-          const cage = [start];
-          const vals = new Set([sol[g.ids[start]]]);
-          cageOf[start] = list.length;
-          while (cage.length < size) {
-            const front = [];
-            for (const x of cage) {
-              const r = Math.floor(x / 9), c = x % 9;
-              for (const [dr, dc] of D4) {
-                const rr = r + dr, cc = c + dc;
-                if (!inGrid(rr, cc)) continue;
-                const y = rr * 9 + cc;
-                if (cageOf[y] < 0 && !vals.has(sol[g.ids[y]]) && !front.includes(y)) front.push(y);
-              }
-            }
-            if (!front.length) break;
-            const y = R.pick(front);
-            cage.push(y); vals.add(sol[g.ids[y]]); cageOf[y] = list.length;
-          }
-          list.push(cage);
-        }
-        // Einzelfelder möglichst an Nachbarkäfige anhängen
-        list.forEach((cage, ci) => {
-          if (cage.length !== 1) return;
-          const x = cage[0], r = Math.floor(x / 9), c = x % 9;
-          for (const [dr, dc] of R.shuffle(D4.slice())) {
-            const rr = r + dr, cc = c + dc;
-            if (!inGrid(rr, cc)) continue;
-            const other = cageOf[rr * 9 + cc];
-            const oc = list[other];
-            if (oc.length < 5 && !oc.some((y) => sol[g.ids[y]] === sol[g.ids[x]])) {
-              oc.push(x); cageOf[x] = other; list[ci] = [];
-              return;
-            }
-          }
-        });
-        for (const cage of list) {
-          if (!cage.length) continue;
+      if (g.type === 'killer' || g.type === 'liar') {
+        for (const cage of killerPartition(g, sol, R)) {
           const cellsG = cage.map((x) => g.ids[x]);
-          cages.push({ cells: cellsG, sum: cellsG.reduce((s, v) => s + sol[v], 0) });
+          const sum = cellsG.reduce((acc, v) => acc + sol[v], 0);
+          if (g.type === 'killer') { cages.push({ cells: cellsG, sum }); continue; }
+          // Lügen-Käfig: angezeigt wird sum±1; bevorzugt so, dass beide Deutungen möglich bleiben
+          const k = cellsG.length, mn = k * (k + 1) / 2, mx = k * (19 - k) / 2;
+          const opts = R.shuffle([sum - 1, sum + 1]).filter((D) => D >= 1);
+          const amb = opts.filter((D) => { const other = D * 2 - sum; return other >= mn && other <= mx; });
+          cages.push({ cells: cellsG, sum: (amb[0] || opts[0]), liar: true });
+        }
+      }
+
+      if (g.type === 'lever') {
+        const cand = [];
+        for (const horiz of [true, false]) {
+          for (let k = 0; k < 9; k++) for (let a = 0; a < 9; a++) for (let L = 4; L <= 7 && a + L <= 9; L++) {
+            const cells = [];
+            for (let i = 0; i < L; i++) cells.push(horiz ? k * 9 + a + i : (a + i) * 9 + k);
+            for (let f = 1; f <= L - 2; f++) {
+              let t = 0;
+              cells.forEach((x, i) => { t += (i - f) * sol[g.ids[x]]; });
+              if (t === 0) cand.push({ cells, f, score: L * 0.6 + R() * 5 });
+            }
+          }
+        }
+        cand.sort((x, y) => y.score - x.score);
+        const used = new Uint8Array(81);
+        let count = 0;
+        for (const c of cand) {
+          if (count >= 11) break;
+          if (c.cells.some((x) => used[x])) continue;
+          c.cells.forEach((x) => { used[x] = 1; });
+          levers.push({ cells: c.cells.map((x) => g.ids[x]), fulcrum: c.f });
+          count++;
+        }
+      }
+
+      if (g.type === 'compass') {
+        const cand = [];
+        for (let x = 0; x < 81; x++) {
+          const v = sol[g.ids[x]], r = Math.floor(x / 9), c = x % 9;
+          for (const [dr, dc] of E.DIRS8) {
+            const rr = r + dr * v, cc = c + dc * v;
+            if (!inGrid(rr, cc)) continue;
+            const tv = sol[g.ids[rr * 9 + cc]];
+            if (tv === 9 || tv === 1) cand.push({ x, dr, dc, digit: tv });
+          }
+        }
+        R.shuffle(cand);
+        const usedCell = new Set();
+        let n9 = 0, n1 = 0;
+        for (const a of cand) {
+          if (usedCell.has(a.x)) continue;
+          if (a.digit === 9 ? n9 >= 9 : n1 >= 7) continue;
+          usedCell.add(a.x);
+          a.digit === 9 ? n9++ : n1++;
+          const r = Math.floor(a.x / 9), c = a.x % 9, targets = [-1];
+          for (let d = 1; d <= 9; d++) {
+            const rr = r + a.dr * d, cc = c + a.dc * d;
+            targets.push(inGrid(rr, cc) ? g.ids[rr * 9 + cc] : -1);
+          }
+          arrows.push({ cell: g.ids[a.x], dir: [a.dr, a.dc], digit: a.digit, targets });
+        }
+      }
+
+      if (g.type === 'lines') {
+        const used = new Uint8Array(81);
+        const diag = new Set();
+        const val = (x) => sol[g.ids[x]];
+        const nb8 = (x) => {
+          const r = Math.floor(x / 9), c = x % 9, out = [];
+          for (const [dr, dc] of E.DIRS8) if (inGrid(r + dr, c + dc)) out.push((r + dr) * 9 + c + dc);
+          return out;
+        };
+        const ekey = (a, b) => a < b ? a + '-' + b : b + '-' + a;
+        // Diagonale Schritte dürfen sich nicht kreuzen
+        const stepOk = (a, b) => {
+          const ra = Math.floor(a / 9), ca = a % 9, rb = Math.floor(b / 9), cb = b % 9;
+          if (ra === rb || ca === cb) return true;
+          return !diag.has(ekey(ra * 9 + cb, rb * 9 + ca));
+        };
+        const commit = (path, type) => {
+          path.forEach((x) => { used[x] = 1; });
+          for (let i = 0; i + 1 < path.length; i++) diag.add(ekey(path[i], path[i + 1]));
+          lines.push({ type, cells: path.map((x) => g.ids[x]) });
+        };
+        const walk = (len, ok) => {
+          const free = [...Array(81).keys()].filter((x) => !used[x]);
+          const start = R.pick(free);
+          const path = [start];
+          while (path.length < len) {
+            const last = path[path.length - 1];
+            const nx = R.shuffle(nb8(last).filter((y) => !used[y] && !path.includes(y) && stepOk(last, y) && ok(path, y)));
+            if (!nx.length) break;
+            path.push(nx[0]);
+          }
+          return path;
+        };
+        const want = { thermo: 3, whisper: 3, renban: 2, palindrome: 2 };
+        const got = { thermo: 0, whisper: 0, renban: 0, palindrome: 0 };
+        for (let attempt = 0; attempt < 3000; attempt++) {
+          const type = ['thermo', 'whisper', 'renban', 'palindrome'][attempt % 4];
+          if (got[type] >= want[type]) { if (Object.keys(want).every((t) => got[t] >= want[t])) break; continue; }
+          let path = null;
+          if (type === 'thermo') {
+            const p = walk(4 + R.int(3), (pa, y) => val(y) > val(pa[pa.length - 1]));
+            if (p.length >= 4) path = p;
+          } else if (type === 'whisper') {
+            const p = walk(4 + R.int(3), (pa, y) => Math.abs(val(y) - val(pa[pa.length - 1])) >= 5);
+            if (p.length >= 4) path = p;
+          } else if (type === 'renban') {
+            const k = 3 + R.int(3);
+            const p = walk(k, (pa, y) => {
+              const vs = pa.map(val);
+              if (vs.includes(val(y))) return false;
+              return Math.max(...vs, val(y)) - Math.min(...vs, val(y)) <= k - 1;
+            });
+            if (p.length === k) path = p;
+          } else {
+            const free = [...Array(81).keys()].filter((x) => !used[x]);
+            const m = R.pick(free);
+            let left = [m], right = [];
+            const half = 2 + R.int(2);
+            for (let h = 0; h < half; h++) {
+              const le = left[left.length - 1], re = right.length ? right[right.length - 1] : m;
+              const inPath = (y) => left.includes(y) || right.includes(y);
+              const opts = [];
+              for (const a of nb8(le)) for (const b of nb8(re)) {
+                if (a !== b && !used[a] && !used[b] && !inPath(a) && !inPath(b) && val(a) === val(b) && stepOk(le, a) && stepOk(re, b)) opts.push([a, b]);
+              }
+              if (!opts.length) break;
+              const [a, b] = R.pick(opts);
+              left.push(a); right.push(b);
+            }
+            if (right.length >= 2) path = [...left.slice().reverse(), ...right];
+          }
+          if (path) { commit(path, type); got[type]++; }
         }
       }
 
@@ -385,7 +543,7 @@
         for (const x of pick) parity.push([g.ids[x], sol[g.ids[x]] % 2 === 0 ? 'e' : 'o']);
       }
     }
-    return { cages, pairs, sums, parity };
+    return { cages, pairs, sums, parity, lines, levers, arrows };
   }
 
   /* ---------- Generierung (als Generator, damit die Oberfläche flüssig bleibt) ---------- */
@@ -394,6 +552,7 @@
     if (!spec) throw new Error('Unbekannte Variante: ' + specId);
     const R = rng(seed);
     const layoutPos = LAYOUTS[spec.layout];
+    if (spec.fixed) difficulty = spec.fixed;
     const diff = DIFFICULTY[difficulty] || DIFFICULTY.medium;
 
     let L, base, full;
@@ -420,6 +579,9 @@
       pairs: clues.pairs,
       sums: clues.sums,
       parity: clues.parity,
+      lines: clues.lines,
+      levers: clues.levers,
+      arrows: clues.arrows,
     };
     const C = compile(P);
 

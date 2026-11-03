@@ -35,6 +35,8 @@
   --t-windoku: #d2e2ee;
   --t-evenodd: #e4d8f4;
   --t-antiknight: #f5dcc6;
+  --t-liar: #f6d0c4; --t-lever: #d9e4f2; --t-compass: #e9e1c8; --t-lines: #eceef3;
+  --ln-thermo: #b7bdc9; --ln-whisper: #33b46a; --ln-renban: #a46be0; --ln-pal: #f0932b; --lever: #6b5a3c;
 
   /* Farb-Sudoku: neun Farben */
   --o0: #f6e98f; --o1: #c8cbd2; --o2: #f6b552; --o3: #f6b3d7; --o4: #ffffff;
@@ -55,6 +57,8 @@
     --window: #2b3850;
     --t-classic: #3e2a31; --t-killer: #263a2b; --t-greater: #3b2639; --t-addition: #3d3220; --t-consecutive: #333b1f;
     --t-x: #262f4c; --t-jigsaw: #1f3a33; --t-offset: #302d29; --t-windoku: #233344; --t-evenodd: #30294a; --t-antiknight: #3d2f24;
+    --t-liar: #3e2622; --t-lever: #223044; --t-compass: #36301e; --t-lines: #232938;
+    --ln-thermo: #59627a; --ln-whisper: #2f9a5c; --ln-renban: #8d5fd0; --ln-pal: #d07f22; --lever: #d9c29a;
     --o0: #6d6420; --o1: #4a4e58; --o2: #7a5418; --o3: #6e3a59; --o4: #2a3142; --o5: #5e4a2e; --o6: #2b6a3d; --o7: #2c5a73; --o8: #4f3f8c;
     --shadow: 0 1px 0 rgba(0, 0, 0, .3), 0 10px 28px -14px rgba(0, 0, 0, .7);
     color-scheme: dark;
@@ -68,6 +72,8 @@
   --window: #2b3850;
   --t-classic: #3e2a31; --t-killer: #263a2b; --t-greater: #3b2639; --t-addition: #3d3220; --t-consecutive: #333b1f;
   --t-x: #262f4c; --t-jigsaw: #1f3a33; --t-offset: #302d29; --t-windoku: #233344; --t-evenodd: #30294a; --t-antiknight: #3d2f24;
+    --t-liar: #3e2622; --t-lever: #223044; --t-compass: #36301e; --t-lines: #232938;
+    --ln-thermo: #59627a; --ln-whisper: #2f9a5c; --ln-renban: #8d5fd0; --ln-pal: #d07f22; --lever: #d9c29a;
   --o0: #6d6420; --o1: #4a4e58; --o2: #7a5418; --o3: #6e3a59; --o4: #2a3142; --o5: #5e4a2e; --o6: #2b6a3d; --o7: #2c5a73; --o8: #4f3f8c;
   --shadow: 0 1px 0 rgba(0, 0, 0, .3), 0 10px 28px -14px rgba(0, 0, 0, .7);
   color-scheme: dark;
@@ -170,6 +176,8 @@ h1 {
   background: var(--desk); color: var(--ink-soft);
 }
 .pill.go { background: var(--accent-soft); color: var(--accent); }
+.pill.hot { background: var(--error-soft); color: var(--error); }
+.shelf-note { margin: -6px 0 14px; color: var(--ink-soft); max-width: 70ch; font-size: .95rem; }
 
 .foot { margin-top: 44px; color: var(--muted); font-size: .85rem; display: grid; gap: 4px; }
 .foot p { margin: 0; }
@@ -259,8 +267,10 @@ h1 {
 .f-addition { fill: var(--t-addition); } .f-consecutive { fill: var(--t-consecutive); } .f-x { fill: var(--t-x); }
 .f-jigsaw { fill: var(--t-jigsaw); } .f-offset { fill: var(--t-offset); } .f-windoku { fill: var(--t-windoku); }
 .f-evenodd { fill: var(--t-evenodd); } .f-antiknight { fill: var(--t-antiknight); }
+.f-liar { fill: var(--t-liar); } .f-lever { fill: var(--t-lever); } .f-compass { fill: var(--t-compass); } .f-lines { fill: var(--t-lines); }
 .single .f-classic, .single .f-killer, .single .f-greater, .single .f-addition, .single .f-consecutive, .single .f-x,
-.single .f-jigsaw, .single .f-evenodd, .single .f-antiknight, .single .f-windoku, .single .f-offset { fill: var(--sheet); }
+.single .f-jigsaw, .single .f-evenodd, .single .f-antiknight, .single .f-windoku, .single .f-offset,
+.single .f-lever, .single .f-compass, .single .f-lines, .single .f-liar { fill: var(--sheet); }
 .f-o0 { fill: var(--o0); } .f-o1 { fill: var(--o1); } .f-o2 { fill: var(--o2); } .f-o3 { fill: var(--o3); } .f-o4 { fill: var(--o4); }
 .f-o5 { fill: var(--o5); } .f-o6 { fill: var(--o6); } .f-o7 { fill: var(--o7); } .f-o8 { fill: var(--o8); }
 .f-win { fill: var(--window); }
@@ -272,6 +282,18 @@ h1 {
 .chev { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .bridge { fill: var(--bridge); }
 .parity { fill: var(--mark); }
+.ln { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ln-thermo { stroke: var(--ln-thermo); stroke-width: 15; }
+.ln-bulb { fill: var(--ln-thermo); }
+.ln-whisper { stroke: var(--ln-whisper); stroke-width: 7; opacity: .85; }
+.ln-renban { stroke: var(--ln-renban); stroke-width: 11; opacity: .55; }
+.ln-palindrome { stroke: var(--ln-pal); stroke-width: 8; opacity: .8; }
+.lever { stroke: var(--lever); stroke-width: 5; stroke-linecap: round; opacity: .7; }
+.lever-dot { fill: var(--lever); }
+.fulcrum { fill: var(--lever); }
+.arr { stroke-linejoin: round; stroke-width: 1.6; }
+.arr9 { fill: var(--ink); stroke: var(--ink); }
+.arr1 { fill: var(--sheet); stroke: var(--ink); }
 .hl-peer { fill: var(--peer); opacity: .7; }
 .hl-same { fill: var(--same); opacity: .85; }
 .hl-sel { fill: var(--sel); opacity: .9; }
