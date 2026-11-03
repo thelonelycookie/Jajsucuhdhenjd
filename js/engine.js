@@ -3,7 +3,7 @@
  * Generischer Constraint-Löser für beliebige (auch verschachtelte) Sudoku-Varianten.
  * Kandidaten werden als Bitmasken gespeichert: Ziffer d -> Bit (1 << (d-1)).
  */
-(function (root) {
+(function engineFactory(root) {
   'use strict';
 
   const ALL = 511;
@@ -435,6 +435,7 @@
   }
 
   const api = { ALL, POP, MIN, MAX, BIT, DIRS8, rng, compile, propagate, solve, solvesByLogic, verify, lineOk, leverTorque, RELATIONS };
+  api.factory = engineFactory; // Quelltext für den Hintergrund-Worker
   root.SudokuEngine = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof self !== 'undefined' ? self : globalThis);

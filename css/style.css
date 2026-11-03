@@ -4,7 +4,7 @@
   --sheet: #ffffff;
   --ink: #17203a;
   --ink-soft: #4d5872;
-  --muted: #7a839a;
+  --muted: #5f6880;
   --rule: #d5dbe5;
   --cell-line: #b9c1d0;
   --accent: #2346d0;
@@ -124,7 +124,7 @@ h1 {
   display: inline-flex; background: var(--sheet); border: 1px solid var(--rule); border-radius: 999px; padding: 3px;
 }
 .seg button {
-  border: 0; background: transparent; padding: 7px 16px; border-radius: 999px; font-weight: 700; color: var(--ink-soft);
+  border: 0; background: transparent; padding: 0 16px; min-height: 42px; border-radius: 999px; font-weight: 700; color: var(--ink-soft);
 }
 .seg button[aria-checked="true"] { background: var(--ink); color: var(--sheet); }
 
@@ -201,6 +201,7 @@ h1 {
 }
 .title-wrap .sub { font-size: .8rem; color: var(--muted); }
 .timer {
+  font: inherit; color: inherit; cursor: pointer;
   font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.05rem; padding: 8px 12px; border-radius: 10px;
   background: var(--sheet); border: 1px solid var(--rule); min-width: 70px; text-align: center;
 }
@@ -224,6 +225,7 @@ h1 {
   font-size: .85rem; min-width: 34px;
 }
 .board-wrap {
+  position: relative;
   overflow: auto; background: var(--sheet); border-radius: 16px; border: 1px solid var(--rule);
   box-shadow: var(--shadow); padding: 10px; max-height: calc(100vh - 140px); max-height: calc(100dvh - 140px);
   overscroll-behavior: contain; touch-action: pan-x pan-y;
@@ -304,6 +306,7 @@ h1 {
 .d.bad { fill: var(--error); }
 .note { font-family: var(--font-body); font-size: 12.5px; fill: var(--ink-soft); text-anchor: middle; dominant-baseline: central; pointer-events: none; font-weight: 700; }
 .note.hit { fill: var(--accent); }
+.note.sm { font-size: 10.5px; }
 
 /* ---------- Overlays ---------- */
 .overlay {
@@ -343,9 +346,37 @@ h1 {
   .pad.notes button { font-size: .95rem; }
 }
 @media (max-width: 420px) {
-  .seg button { padding: 7px 12px; }
+  .seg button { padding: 0 11px; }
   .timer { min-width: 0; padding: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+/* ---------- Ergänzungen ---------- */
+.timer[aria-pressed="true"] { background: var(--ink); color: var(--sheet); border-color: var(--ink); }
+.pause-cover {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px;
+  background: var(--sheet); border-radius: 16px;
+}
+.pause-cover p { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 1.6rem; }
+.gen-actions { margin-top: 16px; }
+.continue { margin-bottom: 18px; display: grid; gap: 8px; }
+.continue h2 { margin: 0; }
+.continue-list { display: flex; flex-wrap: wrap; gap: 10px; }
+.resume {
+  position: relative; overflow: hidden; display: grid; gap: 2px; text-align: left; min-width: 0; flex: 1 1 220px; max-width: 340px;
+  background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 10px 14px 14px;
+}
+.resume:hover { border-color: var(--ink-soft); }
+.resume b { font-family: var(--font-display); }
+.resume span { font-size: .85rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.resume i { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--accent); }
+.rules kbd {
+  font-family: var(--font-body); font-size: .78rem; font-weight: 700; padding: 0 5px; border-radius: 5px;
+  border: 1px solid var(--cell-line); background: var(--desk); color: var(--ink);
+}
+.rules li.keys i { border: 0; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }

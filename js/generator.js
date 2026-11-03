@@ -3,7 +3,7 @@
  * Erzeugt einzelne Varianten und verschachtelte Riesen-Rätsel (Doppel, Samurai, Super-Ring).
  * Jedes Rätsel hat genau eine Lösung.
  */
-(function (root) {
+(function generatorFactory(root) {
   'use strict';
   const E = root.SudokuEngine || (typeof require !== 'undefined' ? require('./engine.js') : null);
   const { rng, compile, solve } = E;
@@ -597,10 +597,13 @@
       let keep;
       if (diff.logic) {
         keep = !E.solvesByLogic(C, givens);
+      } else if (E.solvesByLogic(C, givens)) {
+        keep = false; // ohne Raten lösbar -> sicher eindeutig, teure Suche unnötig
       } else {
-        const res = solve(C, givens, { limit: 1, maxNodes: 3000, exclude: { cell: x, val } });
-        keep = res.count > 0 || res.aborted;
-        if (!keep) keep = solve(C, givens, { limit: 2, maxNodes: diff.guess * 8 }).nodes > diff.guess * (n / 81);
+        // Eine Suche genügt: eindeutig UND innerhalb des Rate-Budgets?
+        const budget = Math.round(diff.guess * (n / 81));
+        const res = solve(C, givens, { limit: 2, maxNodes: budget + 1 });
+        keep = res.aborted || res.count !== 1 || res.nodes > budget;
       }
       if (keep) givens[x] = val;
       else removed.push(x);
@@ -640,6 +643,7 @@
   }
 
   const api = { TYPES, LAYOUTS, CATALOG, DIFFICULTY, generateSteps, generate };
+  api.factory = generatorFactory; // Quelltext für den Hintergrund-Worker
   root.SudokuGenerator = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof self !== 'undefined' ? self : globalThis);

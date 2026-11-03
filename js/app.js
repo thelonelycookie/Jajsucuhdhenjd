@@ -7,7 +7,6 @@
   const S = 48; // Feldgröße in SVG-Einheiten
   const PAD = 3;
   const $ = (id) => document.getElementById(id);
-  const NS = 'http://www.w3.org/2000/svg';
 
   /* ---------- Speicher (lokal, optional) ---------- */
   const store = {
@@ -35,17 +34,37 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, 2400);
   }
-  function confirmBox(title, text) {
+  /* Dialog mit frei wählbaren Knöpfen; Escape oder Abbrechen liefert null */
+  let dialogDone = null;
+  function ask(title, text, buttons) {
     return new Promise((resolve) => {
+      const back = document.activeElement;
       $('confirmTitle').textContent = title;
       $('confirmText').textContent = text;
+      const box = $('confirmActions');
+      box.innerHTML = '';
+      for (const b of [...buttons, { label: 'Abbrechen', value: null }]) {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'btn' + (b.primary ? ' primary' : '');
+        el.textContent = b.label;
+        el.onclick = () => dialogDone(b.value);
+        box.appendChild(el);
+      }
       $('confirmOverlay').hidden = false;
-      const done = (v) => { $('confirmOverlay').hidden = true; $('confirmYes').onclick = $('confirmNo').onclick = null; resolve(v); };
-      $('confirmYes').onclick = () => done(true);
-      $('confirmNo').onclick = () => done(false);
-      $('confirmYes').focus();
+      dialogDone = (v) => {
+        $('confirmOverlay').hidden = true;
+        dialogDone = null;
+        if (back && back.focus) back.focus({ preventScroll: true });
+        resolve(v);
+      };
+      box.firstChild.focus();
     });
   }
+  const confirmBox = (title, text, yes) => ask(title, text, [{ label: yes || 'Ja', value: true, primary: true }]).then((v) => v === true);
+
+  /* Vorlesen für Screenreader */
+  function announce(msg) { const el = $('sr'); if (el) el.textContent = msg; }
 
   /* ---------- Vorschaubilder ---------- */
   const MIX_SAMPLE = ['killer', 'consecutive', 'offset', 'x', 'greater', 'jigsaw', 'addition', 'windoku'];
@@ -136,7 +155,7 @@
       case 'compass':
         base();
         fg = dig(0, 0, 2) + `<polygon points="27,27 17,24 24,17" class="arr arr9"/>` + dig(2, 2, 9, 'user')
-          + dig(0, 2, 1, 'user') + dig(2, 0, 1) + `<polygon points="15,63 9,72 21,72" class="arr arr1" transform="rotate(0)"/>`;
+          + dig(0, 2, 1, 'user') + dig(2, 0, 1) + `<polygon points="15,63 9,72 21,72" class="arr arr1"/>`;
         break;
       case 'lines':
         base();
@@ -148,8 +167,155 @@
     return `<svg viewBox="-2 -2 94 94" aria-hidden="true">${bg}${fg}<rect x="0" y="0" width="90" height="90" class="thick" stroke-width="3"/></svg>`;
   }
 
+  /* ---------- Rätsel-Erzeugung im Hintergrund (Web Worker) mit Vorrat ---------- */
+  const randSeed = () => (Math.random() * 4294967296) >>> 0;
+  const effDiff = (specId, diff) => { const sp = G.CATALOG.find((x) => x.id === specId); return (sp && sp.fixed) || diff; };
+  const Gen = (() => {
+    let workerOk = typeof Worker !== 'undefined' && typeof Blob !== 'undefined' && !!(window.SudokuEngine.factory && G.factory);
+    let src = null, nextId = 1;
+    const workers = {};
+    const cancelled = () => Object.assign(new Error('abgebrochen'), { cancelled: true });
+
+    function spawn() {
+      if (!src) {
+        src = `(${window.SudokuEngine.factory})(self);\n(${G.factory})(self);\n`
+          + 'self.onmessage = function (e) { var d = e.data; try { var it = self.SudokuGenerator.generateSteps(d.spec, d.diff, d.seed); var last = 0;'
+          + ' for (;;) { var r = it.next(); if (r.done) { self.postMessage({ id: d.id, P: r.value }); return; }'
+          + ' var now = Date.now(); if (now - last > 60) { last = now; self.postMessage({ id: d.id, progress: r.value.progress, phase: r.value.phase }); } } }'
+          + ' catch (err) { self.postMessage({ id: d.id, error: String((err && err.message) || err) }); } };';
+      }
+      return new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    }
+    function runWorker(lane, spec, diff, onProgress) {
+      const w = workers[lane] || (workers[lane] = spawn());
+      const id = nextId++;
+      let cancel;
+      const promise = new Promise((resolve, reject) => {
+        const cleanup = () => { w.removeEventListener('message', onMsg); w.removeEventListener('error', onErr); };
+        const onMsg = (e) => {
+          const m = e.data;
+          if (m.id !== id) return;
+          if (m.P) { cleanup(); resolve(m.P); } else if (m.error) { cleanup(); reject(new Error(m.error)); } else if (onProgress) onProgress(m.progress, m.phase);
+        };
+        const onErr = () => { cleanup(); workerOk = false; try { w.terminate(); } catch (e) { /* egal */ } workers[lane] = null; reject(Object.assign(new Error('worker'), { workerFailed: true })); };
+        w.addEventListener('message', onMsg);
+        w.addEventListener('error', onErr);
+        cancel = () => { cleanup(); w.terminate(); workers[lane] = null; reject(cancelled()); };
+        w.postMessage({ id, spec, diff, seed: randSeed() });
+      });
+      return { promise, cancel: () => cancel() };
+    }
+    function runMain(spec, diff, onProgress) {
+      let stopped = false, rejectFn;
+      const promise = new Promise((resolve, reject) => {
+        rejectFn = reject;
+        const it = G.generateSteps(spec, diff, randSeed());
+        const pump = () => {
+          if (stopped) return;
+          const t0 = performance.now();
+          try {
+            while (performance.now() - t0 < 28) {
+              const r = it.next();
+              if (r.done) { resolve(r.value); return; }
+              if (onProgress) onProgress(r.value.progress, r.value.phase);
+            }
+          } catch (e) { reject(e); return; }
+          setTimeout(pump, 0);
+        };
+        setTimeout(pump, 20);
+      });
+      return { promise, cancel: () => { stopped = true; rejectFn(cancelled()); } };
+    }
+    function run(lane, spec, diff, onProgress) {
+      if (workerOk) {
+        try {
+          const job = runWorker(lane, spec, diff, onProgress);
+          const promise = job.promise.catch((e) => {
+            if (e.workerFailed && lane === 'fg') return runMain(spec, diff, onProgress).promise;
+            throw e;
+          });
+          return { promise, cancel: job.cancel };
+        } catch (e) { workerOk = false; }
+      }
+      return lane === 'bg' ? null : runMain(spec, diff, onProgress);
+    }
+
+    // Vorrat: je Variante und Stufe ein fertiges Rätsel, auch über Neuladen hinweg
+    const stock = store.get('stock', {});
+    const STOCK_MAX = 6;
+    const saveStock = () => {
+      const keys = Object.keys(stock);
+      while (keys.length > STOCK_MAX) delete stock[keys.shift()];
+      store.set('stock', stock);
+    };
+    let bg = null;
+    const queue = [];
+    function pump() {
+      if (bg || !queue.length || !workerOk) return;
+      const key = queue.shift();
+      if (stock[key]) { pump(); return; }
+      const [spec, diff] = key.split('|');
+      const listeners = new Set();
+      const job = run('bg', spec, diff, (p, ph) => listeners.forEach((f) => f(p, ph)));
+      if (!job) return;
+      bg = { key, job, listeners };
+      job.promise.then((P) => { stock[key] = P; saveStock(); }).catch(() => {}).then(() => { bg = null; setTimeout(pump, 200); });
+    }
+    function want(spec, diff) {
+      const key = spec + '|' + effDiff(spec, diff);
+      if (stock[key] || (bg && bg.key === key) || queue.includes(key)) return;
+      queue.push(key);
+      setTimeout(pump, 400);
+    }
+    // Liefert { promise, cancel }; nutzt Vorrat oder eine laufende Hintergrund-Erzeugung
+    function get(spec, diff, onProgress) {
+      diff = effDiff(spec, diff);
+      const key = spec + '|' + diff;
+      const refill = (P) => { want(spec, diff); return P; };
+      if (stock[key]) {
+        const P = stock[key];
+        delete stock[key];
+        saveStock();
+        return { promise: Promise.resolve(P).then(refill), cancel() {}, instant: true };
+      }
+      if (bg && bg.key === key) {
+        let rejectFn;
+        const cur = bg;
+        if (onProgress) cur.listeners.add(onProgress);
+        const promise = new Promise((resolve, reject) => {
+          rejectFn = reject;
+          cur.job.promise.then((P) => { delete stock[key]; saveStock(); resolve(P); }, reject);
+        }).then(refill);
+        return { promise, cancel: () => { cur.listeners.delete(onProgress); rejectFn(cancelled()); } };
+      }
+      const job = run('fg', spec, diff, onProgress);
+      return { promise: job.promise.then(refill), cancel: job.cancel };
+    }
+    return { get, want };
+  })();
+
   /* ---------- Startseite ---------- */
   function savedGame(id) { return store.get('save:' + id, null); }
+  const progressOf = (sv) => {
+    const empty = sv.P.givens.filter((v) => !v).length;
+    const filled = sv.values.filter((v, i) => v && !sv.P.givens[i]).length;
+    return empty ? Math.round((filled / empty) * 100) : 0;
+  };
+  const savedLabel = (sv) => `${G.DIFFICULTY[sv.P.difficulty].name} · ${fmtTime(sv.elapsed)} · ${progressOf(sv)} %`;
+
+  /* Karte angeklickt: weiterspielen oder neu? */
+  async function openSpec(id) {
+    const sv = savedGame(id);
+    if (!sv || sv.solved) return startNew(id);
+    const spec = G.CATALOG.find((x) => x.id === id);
+    const diffNew = G.DIFFICULTY[effDiff(id, prefs.difficulty)].name;
+    const choice = await ask(spec.name, `Du hast hier ein angefangenes Rätsel (${savedLabel(sv)}).`, [
+      { label: 'Weiterspielen', value: 'resume', primary: true },
+      { label: `Neues Rätsel (${diffNew})`, value: 'new' },
+    ]);
+    if (choice === 'resume') resume(id);
+    else if (choice === 'new') startNew(id);
+  }
 
   function renderHome() {
     // Logo
@@ -175,12 +341,23 @@
         <ul class="legend">${legend}</ul>
         <div class="actions">
           <button type="button" class="btn primary" id="featNew">Neues Super-Sudoku</button>
-          ${sv && !sv.solved ? `<button type="button" class="btn" id="featCont">Fortsetzen · ${G.DIFFICULTY[sv.P.difficulty].name} · ${fmtTime(sv.elapsed)}</button>` : ''}
+          ${sv && !sv.solved ? `<button type="button" class="btn" id="featCont">Weiterspielen · ${savedLabel(sv)}</button>` : ''}
         </div>
       </div>
       <svg class="preview" viewBox="${prev.viewBox}" aria-label="Form des Super-Sudokus: acht Gitter im Ring">${prev.body}</svg>`;
-    $('featNew').onclick = () => startNew(sup.id);
+    $('featNew').onclick = async () => {
+      if (sv && !sv.solved && !(await confirmBox('Neues Super-Sudoku?', `Dein angefangenes Super-Sudoku (${savedLabel(sv)}) wird dabei ersetzt.`, 'Neu starten'))) return;
+      startNew(sup.id);
+    };
     if ($('featCont')) $('featCont').onclick = () => resume(sup.id);
+
+    // Weiterspielen: angefangene Rätsel, zuletzt gespielte zuerst
+    const open = G.CATALOG.map((sp) => [sp, savedGame(sp.id)]).filter(([, v]) => v && !v.solved && (v.elapsed > 10 || progressOf(v) > 0))
+      .sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0)).slice(0, 4);
+    $('continue').hidden = !open.length;
+    $('continueList').innerHTML = open.map(([sp, v]) => `<button type="button" class="resume" data-id="${sp.id}"><b>${sp.name}</b><span>${savedLabel(v)}</span><i style="width:${progressOf(v)}%"></i></button>`).join('');
+    for (const el of $('continueList').querySelectorAll('.resume')) el.onclick = () => resume(el.dataset.id);
+    Gen.want(sup.id, prefs.difficulty);
 
     const card = (spec) => {
       const sv = savedGame(spec.id);
@@ -189,13 +366,12 @@
       if (spec.layout === 'single') icon = glyph(spec.types[0]);
       else { const p = layoutPreview(spec.layout, spec.types); icon = `<svg viewBox="${p.viewBox}" aria-hidden="true">${p.body}</svg>`; }
       const meta = [];
-      if (sv && !sv.solved) meta.push(`<span class="pill go">Fortsetzen · ${fmtTime(sv.elapsed)}</span>`);
+      if (sv && !sv.solved) meta.push(`<span class="pill go">Angefangen · ${progressOf(sv)} %</span>`);
       if (st && st.solved) meta.push(`<span class="pill">${st.solved}× gelöst</span>`);
       const dKey = spec.fixed || prefs.difficulty;
       if (spec.fixed) meta.unshift(`<span class="pill hot">Immer ${G.DIFFICULTY[spec.fixed].name}</span>`);
       if (st && st.best && st.best[dKey]) meta.push(`<span class="pill">Bestzeit ${fmtTime(st.best[dKey])}</span>`);
-      const blurb = spec.group === 'single' ? spec.blurb : spec.blurb;
-      return `<button type="button" class="card" data-id="${spec.id}">${icon}<div><h3>${spec.name}</h3><p>${blurb}</p>${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}</div></button>`;
+      return `<button type="button" class="card" data-id="${spec.id}">${icon}<div><h3>${spec.name}</h3><p>${spec.blurb}</p>${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}</div></button>`;
     };
     const masters = G.CATALOG.filter((s) => s.group === 'master');
     $('masterCards').innerHTML = masters.map(card).join('');
@@ -206,10 +382,7 @@
     $('giantCount').textContent = giants.length + 1;
     $('singleCount').textContent = singles.length;
     for (const el of document.querySelectorAll('.card')) {
-      el.onclick = () => {
-        const sv = savedGame(el.dataset.id);
-        if (sv && !sv.solved) resume(el.dataset.id); else startNew(el.dataset.id);
-      };
+      el.onclick = () => openSpec(el.dataset.id);
     }
     const total = Object.values(stats).reduce((s, v) => s + (v.solved || 0), 0);
     $('statsLine').textContent = total ? `Bisher gelöst: ${total} Rätsel.` : 'Noch kein Rätsel gelöst. Fang mit einer Variante an, die du kennst.';
@@ -227,35 +400,20 @@
     window.scrollTo(0, 0);
   }
 
+  let genJob = null;
   function runGeneration(specId, diff) {
-    const seed = (Math.random() * 4294967296) >>> 0;
-    return new Promise((resolve, reject) => {
-      const it = G.generateSteps(specId, diff, seed);
-      const ov = $('genOverlay');
-      const showTimer = setTimeout(() => { ov.hidden = false; }, 120);
-      const labels = { solution: 'Lösung wird gebaut …', reduce: 'Vorgaben werden entfernt, Eindeutigkeit wird geprüft …', done: 'Fertig.' };
-      const pump = () => {
-        const t0 = performance.now();
-        try {
-          while (performance.now() - t0 < 28) {
-            const r = it.next();
-            if (r.done) {
-              clearTimeout(showTimer);
-              ov.hidden = true;
-              resolve(r.value);
-              return;
-            }
-            $('genFill').style.width = Math.round(r.value.progress * 100) + '%';
-            $('genText').textContent = labels[r.value.phase] || '';
-          }
-        } catch (e) {
-          clearTimeout(showTimer); ov.hidden = true; reject(e); return;
-        }
-        setTimeout(pump, 0);
-      };
-      $('genFill').style.width = '0%';
-      setTimeout(pump, 20);
+    const ov = $('genOverlay');
+    const labels = { solution: 'Lösung wird gebaut …', reduce: 'Vorgaben werden entfernt, Eindeutigkeit wird geprüft …', done: 'Fertig.' };
+    $('genFill').style.width = '0%';
+    $('genText').textContent = labels.solution;
+    const job = Gen.get(specId, diff, (p, ph) => {
+      $('genFill').style.width = Math.round(p * 100) + '%';
+      $('genText').textContent = labels[ph] || '';
     });
+    genJob = job;
+    const showTimer = job.instant ? 0 : setTimeout(() => { ov.hidden = false; $('genCancel').focus(); }, 150);
+    const end = () => { clearTimeout(showTimer); ov.hidden = true; genJob = null; };
+    return job.promise.then((P) => { end(); return P; }, (e) => { end(); throw e; });
   }
 
   async function startNew(specId) {
@@ -275,6 +433,8 @@
       openGame();
       saveGame();
     } catch (e) {
+      if (game && !$('game').hidden && !game.solved) startTimer(); // altes Spiel läuft weiter
+      if (e && e.cancelled) return;
       console.error(e);
       toast('Das Rätsel konnte nicht erzeugt werden. Bitte noch einmal versuchen.');
     }
@@ -282,16 +442,17 @@
 
   function resume(specId) {
     const sv = savedGame(specId);
-    if (!sv) return startNew(specId);
-    game = Object.assign({ undo: [], sel: -1, zoom: null }, sv);
-    openGame();
+    if (!sv || !sv.P || !sv.values) return startNew(specId);
+    game = Object.assign({ undo: [], sel: -1, zoom: null }, sv, { paused: false });
+    try { openGame(); } catch (e) { console.error(e); store.del('save:' + specId); startNew(specId); }
   }
 
   function saveGame() {
     if (!game) return;
     store.set('save:' + game.P.variant, {
-      P: game.P, values: game.values, notes: game.notes, elapsed: game.elapsed, hints: game.hints, solved: game.solved,
+      P: game.P, values: game.values, notes: game.notes, elapsed: game.elapsed, hints: game.hints, solved: game.solved, savedAt: Date.now(),
     });
+    store.set('last', game.P.variant);
   }
 
   function openGame() {
@@ -303,11 +464,23 @@
     buildPad();
     buildRules();
     $('zoomTools').hidden = P.grids.length === 1;
+    setPaused(false);
     showScreen('game');
+    if (location.hash !== '#spiel') { try { location.hash = 'spiel'; ownHash = true; } catch (e) { /* egal */ } }
+    Gen.want(P.variant, P.difficulty);
     applyZoom(true);
     renderDynamic();
     startTimer();
     $('board').focus({ preventScroll: true });
+    announce(`${P.name}, ${G.DIFFICULTY[P.difficulty].name}. Wähle ein Feld mit den Pfeiltasten oder durch Tippen.`);
+  }
+
+  let ownHash = false;
+  function leaveGame() {
+    saveGame(); stopTimer(); closeMenu();
+    if (location.hash === '#spiel') { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* egal */ } }
+    ownHash = false;
+    renderHome(); showScreen('home');
   }
 
   /* Vorberechnungen für Darstellung und Fehlerprüfung */
@@ -432,6 +605,10 @@
       lines += `<polygon points="${cx + ux * s2},${cy + uy * s2} ${cx - ux * s2 + px * s2},${cy - uy * s2 + py * s2} ${cx - ux * s2 - px * s2},${cy - uy * s2 - py * s2}" class="arr arr${ar.digit}"/>`;
     }
     svg.innerHTML = `<g>${bg}</g><g id="hlLayer"></g><g>${marks}${lines}</g><g>${thick}</g><g>${clues}</g><g id="digLayer"></g>`;
+    V.labelCells = new Set((P.cages || []).map((cg) => cg.cells.reduce((best, id) => {
+      const [r, c] = P.cells[id], [br, bc] = P.cells[best];
+      return r < br || (r === br && c < bc) ? id : best;
+    }, cg.cells[0])));
     V.hl = svg.querySelector('#hlLayer');
     V.dig = svg.querySelector('#digLayer');
   }
@@ -597,8 +774,10 @@
         const nm = game.notes[i];
         for (let d = 1; d <= 9; d++) {
           if (!(nm & (1 << (d - 1)))) continue;
-          const x = c * S + 10 + ((d - 1) % 3) * 14, y = r * S + 11 + Math.floor((d - 1) / 3) * 13.5;
-          dig += `<text x="${x}" y="${y}" class="note${d === selVal ? ' hit' : ''}">${d}</text>`;
+          const lab = V.labelCells.has(i); // Platz für die Käfigsumme lassen
+          const x = lab ? c * S + 16 + ((d - 1) % 3) * 12 : c * S + 10 + ((d - 1) % 3) * 14;
+          const y = lab ? r * S + 21 + Math.floor((d - 1) / 3) * 10.5 : r * S + 11 + Math.floor((d - 1) / 3) * 13.5;
+          dig += `<text x="${x}" y="${y}" class="note${lab ? ' sm' : ''}${d === selVal ? ' hit' : ''}">${d}</text>`;
         }
       }
     }
@@ -643,8 +822,14 @@
       const T = G.TYPES[t];
       html += `<li><i style="background:var(--t-${t})"></i><span><b>${T.name}</b>${t === 'classic' && P.grids.length > 1 ? 'Nichts Besonderes: Zeilen, Spalten und Blöcke enthalten 1–9.' : T.rule}</span></li>`;
     }
+    if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      html += `<li class="keys"><i></i><span><b>Tastatur</b><kbd>1</kbd>–<kbd>9</kbd> setzen · Pfeile bewegen · <kbd>N</kbd> Notizen · <kbd>Entf</kbd> löschen · <kbd>Strg</kbd>+<kbd>Z</kbd> zurück · <kbd>H</kbd> Tipp · <kbd>P</kbd> Pause</span></li>`;
+    }
     $('rulesList').innerHTML = html;
-    if (window.matchMedia('(max-width: 860px)').matches) $('rules').open = false;
+    // Auf dem Handy eingeklappt – außer bei einer Variante, die noch nie gespielt wurde
+    const known = stats[P.variant] && stats[P.variant].solved;
+    if (window.matchMedia('(max-width: 860px)').matches) $('rules').open = !known && !game.values.some((v, i) => v && !P.givens[i]);
+    else $('rules').open = true;
   }
 
   /* ---------- Eingabe ---------- */
@@ -654,7 +839,7 @@
   }
 
   function input(d) {
-    if (!game || game.solved) return;
+    if (!game || game.solved || game.paused) return;
     const i = game.sel;
     if (i < 0) { toast('Wähle zuerst ein Feld.'); return; }
     if (game.P.givens[i]) return;
@@ -679,10 +864,11 @@
     pushUndo(changes);
     V.flash.clear();
     afterChange();
+    announce(describe(i));
   }
 
   function erase() {
-    if (!game || game.solved) return;
+    if (!game || game.solved || game.paused) return;
     const i = game.sel;
     if (i < 0 || game.P.givens[i]) return;
     if (!game.values[i] && !game.notes[i]) return;
@@ -692,7 +878,7 @@
   }
 
   function undo() {
-    if (!game || game.solved) return;
+    if (!game || game.solved || game.paused) return;
     const ch = game.undo.pop();
     if (!ch) { toast('Nichts zum Rückgängigmachen.'); return; }
     for (let k = ch.length - 1; k >= 0; k--) { game.values[ch[k].i] = ch[k].v; game.notes[ch[k].i] = ch[k].n; }
@@ -701,7 +887,7 @@
   }
 
   function hint() {
-    if (!game || game.solved) return;
+    if (!game || game.solved || game.paused) return;
     const P = game.P;
     let i = game.sel;
     if (i < 0 || P.givens[i] || game.values[i] === P.solution[i]) {
@@ -763,9 +949,20 @@
   }
 
   /* ---------- Auswahl, Tastatur, Zeiger ---------- */
+  function describe(i) {
+    const P = game.P;
+    const [r, c] = P.cells[i];
+    const v = game.values[i];
+    let t = `Zeile ${r + 1}, Spalte ${c + 1}: `;
+    if (v) t += v + (P.givens[i] ? ' (vorgegeben)' : '');
+    else if (game.notes[i]) t += 'leer, Notizen ' + [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((d) => game.notes[i] & (1 << (d - 1))).join(' ');
+    else t += 'leer';
+    return t;
+  }
   function select(i) {
     game.sel = i;
     renderDynamic();
+    announce(describe(i));
   }
 
   function moveSel(dr, dc) {
@@ -816,8 +1013,17 @@
       if (id >= 0) select(id);
     });
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (dialogDone) { dialogDone(null); return; }
+        if (genJob) { genJob.cancel(); return; }
+        if (!$('winOverlay').hidden) { $('winOverlay').hidden = true; return; }
+        closeMenu();
+        return;
+      }
       if ($('game').hidden || !game) return;
-      if (!$('confirmOverlay').hidden || !$('winOverlay').hidden) return;
+      if (!$('confirmOverlay').hidden || !$('winOverlay').hidden || !$('genOverlay').hidden) return;
+      if (e.key === 'p' || e.key === 'P') { setPaused(!game.paused); e.preventDefault(); return; }
+      if (game.paused) return;
       if (e.target && (e.target.tagName === 'INPUT')) return;
       const k = e.key;
       if (/^[1-9]$/.test(k)) { input(Number(k)); e.preventDefault(); return; }
@@ -829,7 +1035,6 @@
       if (k === 'n' || k === 'N' || k === ' ') { toggleNotes(); e.preventDefault(); return; }
       if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'Z')) { undo(); e.preventDefault(); return; }
       if (k === 'h' || k === 'H') { hint(); e.preventDefault(); }
-      if (k === 'Escape') { closeMenu(); }
     });
   }
 
@@ -859,6 +1064,38 @@
     svg.style.width = w + 'px';
     svg.style.height = Math.round(w * (P.rows * S + 2 * PAD) / (P.cols * S + 2 * PAD)) + 'px';
   }
+  // Zoomt so, dass der Punkt unter (clientX, clientY) an seiner Stelle bleibt
+  function zoomTo(z, clientX, clientY) {
+    if (!game) return;
+    const wrap = $('boardWrap'), svg = $('board');
+    const wr = wrap.getBoundingClientRect(), sr = svg.getBoundingClientRect();
+    const fx = (clientX - sr.left) / sr.width, fy = (clientY - sr.top) / sr.height;
+    game.zoom = Math.max(1, Math.min(4, z));
+    applyZoom(false);
+    wrap.scrollLeft = svg.offsetLeft + fx * svg.clientWidth - (clientX - wr.left);
+    wrap.scrollTop = svg.offsetTop + fy * svg.clientHeight - (clientY - wr.top);
+  }
+  function bindZoomGestures() {
+    const wrap = $('boardWrap');
+    let pinch = null;
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    wrap.addEventListener('touchstart', (e) => {
+      if (game && e.touches.length === 2) pinch = { d: dist(e.touches), z: game.zoom };
+    }, { passive: true });
+    wrap.addEventListener('touchmove', (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      const t = e.touches;
+      zoomTo(pinch.z * dist(t) / pinch.d, (t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2);
+    }, { passive: false });
+    wrap.addEventListener('touchend', (e) => { if (e.touches.length < 2) pinch = null; });
+    wrap.addEventListener('wheel', (e) => {
+      if (!game || !(e.ctrlKey || e.metaKey)) return; // Strg + Mausrad bzw. Trackpad-Geste
+      e.preventDefault();
+      zoomTo(game.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+    }, { passive: false });
+  }
+
   function zoomBy(f) {
     if (!game) return;
     const wrap = $('boardWrap');
@@ -880,7 +1117,7 @@
       const now = performance.now();
       const dt = (now - last) / 1000;
       last = now;
-      if (!game || game.solved || document.hidden || $('game').hidden) return;
+      if (!game || game.solved || game.paused || document.hidden || $('game').hidden) return;
       game.elapsed += dt;
       sinceSave += dt;
       $('timer').textContent = fmtTime(game.elapsed);
@@ -889,6 +1126,17 @@
   }
   function stopTimer() { clearInterval(timerId); timerId = 0; }
 
+  function setPaused(on) {
+    if (!game) return;
+    if (game.solved) on = false;
+    game.paused = on;
+    $('pauseCover').hidden = !on;
+    $('board').style.visibility = on ? 'hidden' : '';
+    $('timer').setAttribute('aria-pressed', String(on));
+    $('timer').setAttribute('aria-label', on ? 'Weiterspielen' : 'Pause');
+    if (on) { closeMenu(); saveGame(); $('resumeBtn').focus(); } else if (!$('game').hidden) $('board').focus({ preventScroll: true });
+  }
+
   /* ---------- Menü ---------- */
   function closeMenu() { $('menu').hidden = true; $('menuBtn').setAttribute('aria-expanded', 'false'); }
 
@@ -896,7 +1144,16 @@
     for (const b of $('diffSeg').querySelectorAll('button')) {
       b.onclick = () => { prefs.difficulty = b.dataset.diff; savePrefs(); renderHome(); };
     }
-    $('backBtn').onclick = () => { saveGame(); stopTimer(); closeMenu(); renderHome(); showScreen('home'); };
+    $('backBtn').onclick = () => {
+      // Eigener Verlaufseintrag (#spiel) -> zurückgehen, damit auch die Handy-Zurück-Taste passt
+      if (ownHash && location.hash === '#spiel') { ownHash = false; history.back(); } else leaveGame();
+    };
+    window.addEventListener('hashchange', () => {
+      if (location.hash !== '#spiel' && !$('game').hidden) { if (genJob) genJob.cancel(); leaveGame(); }
+    });
+    $('timer').onclick = () => setPaused(!game.paused);
+    $('resumeBtn').onclick = () => setPaused(false);
+    $('genCancel').onclick = () => { if (genJob) genJob.cancel(); };
     $('menuBtn').onclick = (e) => {
       e.stopPropagation();
       const open = $('menu').hidden;
@@ -937,7 +1194,7 @@
     $('zoomOut').onclick = () => zoomBy(1 / 1.3);
     $('zoomFit').onclick = () => { game.zoom = 1; applyZoom(false); };
     $('winNext').onclick = () => { $('winOverlay').hidden = true; startNew(game.P.variant); };
-    $('winHome').onclick = () => { $('winOverlay').hidden = true; renderHome(); showScreen('home'); };
+    $('winHome').onclick = () => { $('winOverlay').hidden = true; $('backBtn').onclick(); };
     window.addEventListener('resize', () => { if (game && !$('game').hidden) applyZoom(false); });
     window.addEventListener('pagehide', saveGame);
     document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
@@ -945,6 +1202,13 @@
 
   bindUI();
   bindBoard();
+  bindZoomGestures();
   renderHome();
   showScreen('home');
+  // Neu geladen während eines Spiels? Dann direkt weiterspielen.
+  if (location.hash === '#spiel') {
+    const last = store.get('last', null);
+    const sv = last && savedGame(last);
+    if (sv && !sv.solved) resume(last);
+  }
 })();

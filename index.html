@@ -7,6 +7,9 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Verschachtelte Sudoku-Varianten: Super-Sudoku, Samurai, Killer, Größer/Kleiner, Nachbar-Sudoku und mehr – unendlich viele neue Rätsel.">
 <meta name="theme-color" content="#eef1f5">
+<meta property="og:title" content="Sudoku Mosaik">
+<meta property="og:description" content="Super-Sudoku, Samurai, Killer, Hebel-Sudoku und mehr – jedes Rätsel neu erzeugt, mit genau einer Lösung.">
+<meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap">
@@ -38,6 +41,11 @@
         </div>
       </div>
     </header>
+
+    <section class="continue" id="continue" hidden>
+      <h2 class="label">Weiterspielen</h2>
+      <div class="continue-list" id="continueList"></div>
+    </section>
 
     <section class="feature" id="feature"></section>
 
@@ -73,7 +81,7 @@
         <h2 id="gameTitle">Super-Sudoku</h2>
         <span class="sub" id="gameSub">Mittel</span>
       </div>
-      <div class="timer" id="timer" aria-live="off">0:00</div>
+      <button type="button" class="timer" id="timer" aria-label="Pause" aria-pressed="false" title="Pause">0:00</button>
       <button type="button" class="icon-btn" id="menuBtn" aria-label="Menü" aria-expanded="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5.5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="18.5" r="1.6"/></svg>
       </button>
@@ -94,7 +102,11 @@
           <button type="button" class="chip" id="zoomIn" aria-label="Vergrößern">+</button>
         </div>
         <div class="board-wrap" id="boardWrap">
-          <svg id="board" class="board" role="grid" aria-label="Spielfeld" tabindex="0"></svg>
+          <svg id="board" class="board" role="application" aria-label="Spielfeld. Pfeiltasten bewegen, Ziffern setzen." tabindex="0"></svg>
+          <div class="pause-cover" id="pauseCover" hidden>
+            <p>Pausiert</p>
+            <button type="button" class="btn primary" id="resumeBtn">Weiterspielen</button>
+          </div>
         </div>
       </div>
 
@@ -128,16 +140,17 @@
 
   <!-- Erzeugung -->
   <div class="overlay" id="genOverlay" hidden>
-    <div class="dialog">
+    <div class="dialog" role="dialog" aria-modal="true">
       <h3>Rätsel wird erzeugt</h3>
       <p id="genText">Lösung wird gebaut …</p>
       <div class="bar"><div class="fill" id="genFill"></div></div>
+      <div class="dialog-actions gen-actions"><button type="button" class="btn" id="genCancel">Abbrechen</button></div>
     </div>
   </div>
 
   <!-- Gelöst -->
   <div class="overlay" id="winOverlay" hidden>
-    <div class="dialog win">
+    <div class="dialog win" role="dialog" aria-modal="true">
       <svg class="win-mark" viewBox="0 0 11 11" id="winMark" aria-hidden="true"></svg>
       <h3>Gelöst!</h3>
       <p id="winText"></p>
@@ -150,17 +163,15 @@
 
   <!-- Bestätigung -->
   <div class="overlay" id="confirmOverlay" hidden>
-    <div class="dialog">
+    <div class="dialog" role="dialog" aria-modal="true">
       <h3 id="confirmTitle">Sicher?</h3>
       <p id="confirmText"></p>
-      <div class="dialog-actions">
-        <button type="button" class="btn primary" id="confirmYes">Ja</button>
-        <button type="button" class="btn" id="confirmNo">Abbrechen</button>
-      </div>
+      <div class="dialog-actions" id="confirmActions"></div>
     </div>
   </div>
 
   <div class="toast" id="toast" role="status" hidden></div>
+  <div class="sr-only" id="sr" aria-live="polite"></div>
 </div>
 
 <script src="js/engine.js"></script>

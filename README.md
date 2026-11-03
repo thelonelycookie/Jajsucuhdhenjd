@@ -33,8 +33,11 @@ Vier Stufen: *Leicht* und *Mittel* sind ohne Raten lösbar, *Schwer* und *Extrem
 - Feld antippen, dann Ziffer im Zahlenfeld wählen (oder Tastatur `1`–`9`, Pfeiltasten, `Entf`)
 - **Notizen** (`N` / Leertaste), **Löschen**, **Zurück** (`Strg+Z`), **Tipp** (`H`)
 - Menü (⋮): neues Rätsel, von vorn, Fehler prüfen, „Fehler sofort zeigen“
-- Riesen-Rätsel: mit − / + zoomen und wischen zum Verschieben
+- Zoomen: mit zwei Fingern, mit Strg + Mausrad oder mit − / +; wischen zum Verschieben
+- Pause: auf die Uhr tippen (oder `P`); Zurück-Taste des Handys führt zur Übersicht
+- „Weiterspielen“ oben auf der Startseite zeigt angefangene Rätsel mit Fortschritt
 - Fortschritt, Zeit und Bestzeiten werden lokal im Browser gespeichert
+- Rätsel werden im Hintergrund (Web Worker) vorbereitet, das nächste startet meist sofort
 
 ## Starten
 
