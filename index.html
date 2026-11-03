@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sudoku Mosaik</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Verschachtelte Sudoku-Varianten: Super-Sudoku, Samurai, Killer, Größer/Kleiner, Nachbar-Sudoku und mehr – unendlich viele neue Rätsel.">
+<meta name="theme-color" content="#eef1f5">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+</head>
+<body>
+<div id="app">
+
+  <!-- Startseite -->
+  <main id="home" class="screen">
+    <header class="masthead">
+      <div class="brand">
+        <svg id="logo" class="logo" viewBox="0 0 11 11" aria-hidden="true"></svg>
+        <div>
+          <h1>Sudoku Mosaik</h1>
+          <p class="tagline">Verschachtelte Sudokus mit eigenen Regeln. Jedes Rätsel wird neu erzeugt und hat genau eine Lösung.</p>
+        </div>
+      </div>
+      <div class="diff-pick" role="radiogroup" aria-label="Schwierigkeit">
+        <span class="label">Schwierigkeit</span>
+        <div class="seg" id="diffSeg">
+          <button type="button" id="diff-easy" data-diff="easy" role="radio">Leicht</button>
+          <button type="button" id="diff-medium" data-diff="medium" role="radio">Mittel</button>
+          <button type="button" id="diff-hard" data-diff="hard" role="radio">Schwer</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="feature" id="feature"></section>
+
+    <section class="shelf">
+      <h2>Riesen-Rätsel <span class="count" id="giantCount"></span></h2>
+      <div class="cards" id="giantCards"></div>
+    </section>
+
+    <section class="shelf">
+      <h2>Einzelne Varianten <span class="count" id="singleCount"></span></h2>
+      <div class="cards" id="singleCards"></div>
+    </section>
+
+    <footer class="foot">
+      <p id="statsLine"></p>
+      <p>Idee nach dem „Super Sudoku“ von Carykh. Alle Rätsel hier sind neu erzeugt.</p>
+    </footer>
+  </main>
+
+  <!-- Spielansicht -->
+  <main id="game" class="screen" hidden>
+    <header class="topbar">
+      <button type="button" class="icon-btn" id="backBtn" aria-label="Zur Übersicht">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+      </button>
+      <div class="title-wrap">
+        <h2 id="gameTitle">Super-Sudoku</h2>
+        <span class="sub" id="gameSub">Mittel</span>
+      </div>
+      <div class="timer" id="timer" aria-live="off">0:00</div>
+      <button type="button" class="icon-btn" id="menuBtn" aria-label="Menü" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5.5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="18.5" r="1.6"/></svg>
+      </button>
+      <div class="menu" id="menu" hidden>
+        <button type="button" id="newBtn">Neues Rätsel</button>
+        <button type="button" id="restartBtn">Von vorn beginnen</button>
+        <button type="button" id="checkBtn">Fehler prüfen</button>
+        <label class="toggle"><input type="checkbox" id="liveErrors"> Fehler sofort zeigen</label>
+        <label class="toggle"><input type="checkbox" id="autoNotes"> Notizen automatisch löschen</label>
+      </div>
+    </header>
+
+    <div class="play">
+      <div class="board-col">
+        <div class="board-tools" id="zoomTools">
+          <button type="button" class="chip" id="zoomOut" aria-label="Verkleinern">−</button>
+          <button type="button" class="chip" id="zoomFit">Einpassen</button>
+          <button type="button" class="chip" id="zoomIn" aria-label="Vergrößern">+</button>
+        </div>
+        <div class="board-wrap" id="boardWrap">
+          <svg id="board" class="board" role="grid" aria-label="Spielfeld" tabindex="0"></svg>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="pad" id="pad"></div>
+        <div class="tools">
+          <button type="button" class="tool" id="notesBtn" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+            <span>Notizen</span>
+          </button>
+          <button type="button" class="tool" id="eraseBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 20h11"/><path d="M5 15l8-8 5 5-6 6H8z"/></svg>
+            <span>Löschen</span>
+          </button>
+          <button type="button" class="tool" id="undoBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-5-5 5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg>
+            <span>Zurück</span>
+          </button>
+          <button type="button" class="tool" id="hintBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0012 3z"/></svg>
+            <span>Tipp</span>
+          </button>
+        </div>
+        <details class="rules" id="rules" open>
+          <summary>Regeln</summary>
+          <ul id="rulesList"></ul>
+        </details>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Erzeugung -->
+  <div class="overlay" id="genOverlay" hidden>
+    <div class="dialog">
+      <h3>Rätsel wird erzeugt</h3>
+      <p id="genText">Lösung wird gebaut …</p>
+      <div class="bar"><div class="fill" id="genFill"></div></div>
+    </div>
+  </div>
+
+  <!-- Gelöst -->
+  <div class="overlay" id="winOverlay" hidden>
+    <div class="dialog win">
+      <svg class="win-mark" viewBox="0 0 11 11" id="winMark" aria-hidden="true"></svg>
+      <h3>Gelöst!</h3>
+      <p id="winText"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn primary" id="winNext">Nächstes Rätsel</button>
+        <button type="button" class="btn" id="winHome">Zur Übersicht</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bestätigung -->
+  <div class="overlay" id="confirmOverlay" hidden>
+    <div class="dialog">
+      <h3 id="confirmTitle">Sicher?</h3>
+      <p id="confirmText"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn primary" id="confirmYes">Ja</button>
+        <button type="button" class="btn" id="confirmNo">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/generator.js"></script>
+<script src="js/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    try { navigator.serviceWorker.register('sw.js').catch(function () {}); } catch (e) {}
+  }
+</script>
+</body>
+</html>

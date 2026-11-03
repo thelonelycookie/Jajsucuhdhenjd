@@ -1,0 +1,17 @@
+// Offline-Cache für die installierbare Web-App
+const CACHE = 'mosaik-v1';
+const FILES = ['./', 'index.html', 'css/style.css', 'js/engine.js', 'js/generator.js', 'js/app.js', 'icon.svg', 'manifest.webmanifest'];
+self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES))));
+self.addEventListener('activate', (e) => e.waitUntil(
+  caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+));
+self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    fetch(e.request).then((res) => {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+      return res;
+    }).catch(() => caches.match(e.request))
+  );
+});

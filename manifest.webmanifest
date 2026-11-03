@@ -1,0 +1,11 @@
+{
+  "name": "Sudoku Mosaik",
+  "short_name": "Mosaik",
+  "description": "Verschachtelte Sudoku-Varianten – Super-Sudoku, Samurai, Killer und mehr.",
+  "lang": "de",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#eef1f5",
+  "theme_color": "#eef1f5",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
